@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -80,6 +81,7 @@ class _MobilePlayerControlsState extends State<MobilePlayerControls> {
   Timer? _brightnessHideTimer;
   Timer? _timeUpdateTimer;
   String _currentTime = '';
+  bool _isPortrait = true; // 跟踪当前屏幕方向
 
   @override
   void initState() {
@@ -380,8 +382,15 @@ class _MobilePlayerControlsState extends State<MobilePlayerControls> {
     widget.onFullscreenChange(false);
     // 触发退出全屏回调
     widget.onExitFullScreen?.call();
-    // 确保控制栏可见并重新启动隐藏计时器
+    // 重置屏幕方向为默认设置
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     setState(() {
+      _isPortrait = true;
       _controlsVisible = true;
       _isLocked = false;
     });
@@ -465,6 +474,26 @@ class _MobilePlayerControlsState extends State<MobilePlayerControls> {
     _hideTimer?.cancel();
     // 调用父层的 PIP 逻辑
     await widget.onEnterPipMode();
+  }
+
+  Future<void> _toggleScreenOrientation() async {
+    _onUserInteraction();
+    setState(() {
+      _isPortrait = !_isPortrait;
+    });
+    if (_isPortrait) {
+      // 切换到竖屏
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
+    } else {
+      // 切换到横屏
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    }
   }
 
   String _formatDuration(Duration duration) {
@@ -898,6 +927,22 @@ class _MobilePlayerControlsState extends State<MobilePlayerControls> {
                       padding: const EdgeInsets.all(8),
                       child: Icon(
                         Icons.picture_in_picture_alt,
+                        color: Colors.white,
+                        size: _isFullscreen ? 22 : 20,
+                      ),
+                    ),
+                  ),
+                if (_isFullscreen) // 只在全屏模式下显示方向切换按钮
+                  GestureDetector(
+                    onTap: () async {
+                      _onUserInteraction();
+                      await _toggleScreenOrientation();
+                    },
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      child: Icon(
+                        _isPortrait ? Icons.screen_rotation : Icons.screen_rotation_alt,
                         color: Colors.white,
                         size: _isFullscreen ? 22 : 20,
                       ),

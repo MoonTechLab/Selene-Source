@@ -38,7 +38,7 @@ dependencies:
   cupertino_icons: ^1.0.6
   
   # 添加用于创建美观UI的依赖
-  google_fonts: ^6.2.1
+  google_fonts: ^8.0.2
   flutter_svg: ^2.0.10+1
   http: ^1.2.1
   shared_preferences: ^2.2.3
