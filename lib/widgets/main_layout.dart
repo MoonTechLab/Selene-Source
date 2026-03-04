@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
-import 'package:selene/services/search_service.dart';
-import 'package:selene/services/user_data_service.dart';
+import 'package:heintv/services/search_service.dart';
+import 'package:heintv/services/user_data_service.dart';
 import '../services/theme_service.dart';
 import '../services/api_service.dart';
 import '../utils/device_utils.dart';
@@ -464,7 +464,7 @@ class _MainLayoutState extends State<MainLayout> {
               onTap: widget.onHomeTap,
               behavior: HitTestBehavior.opaque,
               child: Text(
-                'Selene',
+                'HeinTV',
                 style: FontUtils.sourceCodePro(
                   fontSize: 24,
                   fontWeight: FontWeight.w400,

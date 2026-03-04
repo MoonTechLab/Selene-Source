@@ -1,11 +1,11 @@
 {
-    "name": "selene",
-    "short_name": "selene",
+    "name": "HeinTV",
+    "short_name": "HeinTV",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#hexcode",
     "theme_color": "#hexcode",
-    "description": "A new Flutter project.",
+    "description": "HeinTV - A MoonTV-based Video Player.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

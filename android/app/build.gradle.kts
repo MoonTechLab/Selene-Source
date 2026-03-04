@@ -9,9 +9,8 @@ plugins {
 }
 
 android {
-    namespace = "org.moontechlab.selene"
+    namespace = "org.hein.heintv"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "29.0.14033849"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -24,7 +23,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "org.moontechlab.selene"
+        applicationId = "org.hein.heintv"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

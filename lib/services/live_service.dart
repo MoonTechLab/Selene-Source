@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:selene/services/local_mode_storage_service.dart';
-import 'package:selene/services/user_data_service.dart';
+import 'package:heintv/services/local_mode_storage_service.dart';
+import 'package:heintv/services/user_data_service.dart';
 
 import '../models/live_channel.dart';
 import '../models/live_source.dart';
