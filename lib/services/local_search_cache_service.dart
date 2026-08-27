@@ -141,7 +141,7 @@ class LocalSearchCacheService {
     if (_cleanupTimer != null) return; // 避免重复启动
 
     _cleanupTimer = Timer.periodic(
-      Duration(milliseconds: _cacheCleanupIntervalMs),
+      const Duration(milliseconds: _cacheCleanupIntervalMs),
       (_) {
         _performCacheCleanup();
       },

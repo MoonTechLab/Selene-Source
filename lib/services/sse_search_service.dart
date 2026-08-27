@@ -221,11 +221,13 @@ class SSESearchService {
       // 创建 HTTP 客户端并开始 SSE 连接
       _client = http.Client();
       final request = http.Request('GET', sseUri);
-      request.headers.addAll({
+      final headers = <String, String>{
         'Accept': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Cookie': cookies,
-      });
+      };
+      await ApiService.addBrowserHeaders(headers);
+      request.headers.addAll(headers);
 
       _subscription = _client!.send(request).asStream().listen(
         _handleSSEResponse,
@@ -270,7 +272,7 @@ class SSESearchService {
     _buffer = '';
 
     // 使用流式 UTF-8 解码器，自动处理跨 chunk 的多字节字符
-    final utf8Decoder = const Utf8Decoder(allowMalformed: false);
+    const utf8Decoder = Utf8Decoder(allowMalformed: false);
 
     // 流式处理 SSE 数据
     await for (final chunk in response.stream.transform(utf8Decoder)) {

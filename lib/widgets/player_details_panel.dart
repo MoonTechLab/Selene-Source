@@ -168,7 +168,7 @@ class PlayerDetailsPanel extends StatelessWidget {
                           ],
                           if (totalEpisodes != null && totalEpisodes > 1) ...[
                             Text(
-                              '全${totalEpisodes}集',
+                              '全$totalEpisodes集',
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: isDarkMode
                                     ? Colors.grey[400]
@@ -364,7 +364,7 @@ class PlayerDetailsPanel extends StatelessWidget {
                           const SizedBox(height: 4),
                           if (totalEpisodes > 1)
                             Text(
-                              '全${totalEpisodes}集',
+                              '全$totalEpisodes集',
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: isDarkMode
                                     ? Colors.grey[400]

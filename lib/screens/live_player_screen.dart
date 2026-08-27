@@ -444,10 +444,12 @@ class _LivePlayerScreenState extends State<LivePlayerScreen>
             children: [
               Column(
                 children: [
-                  // Windows 自定义标题栏
+                  // Windows 自定义标题栏（跟随主题）
                   if (Platform.isWindows)
-                    const WindowsTitleBar(
-                      customBackgroundColor: Color(0xFF000000),
+                    WindowsTitleBar(
+                      customBackgroundColor: isDarkMode
+                          ? const Color(0xFF121212)
+                          : const Color(0xFFf5f5f5),
                     ),
                   // 主要内容
                   Expanded(
@@ -1809,8 +1811,8 @@ class _LivePlayerScreenState extends State<LivePlayerScreen>
                     Container(
                       width: 4,
                       height: 4,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF27ae60),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF27ae60),
                         shape: BoxShape.circle,
                       ),
                     ),

@@ -304,16 +304,16 @@ class _DLNAPlayerControlsState extends State<DLNAPlayerControls> {
             ),
           ),
           // 中央加载指示器
-          Center(
+          const Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const CircularProgressIndicator(
+                CircularProgressIndicator(
                   color: Colors.white,
                   strokeWidth: 3,
                 ),
-                const SizedBox(height: 16),
-                const Text(
+                SizedBox(height: 16),
+                Text(
                   '视频加载中...',
                   style: TextStyle(
                     color: Colors.white,

@@ -554,7 +554,7 @@ class PageCacheService
         final existingItem = cachedData[existingIndex];
         final updatedHistory = [
           existingItem,
-          ...cachedData.where((item) => item != query).toList()
+          ...cachedData.where((item) => item != query)
         ];
         setCache(cacheKey, updatedHistory);
       }

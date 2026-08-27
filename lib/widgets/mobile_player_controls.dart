@@ -244,8 +244,9 @@ class _MobilePlayerControlsState extends State<MobilePlayerControls> {
   }
 
   void _onSwipeUpdate(DragUpdateDetails details) {
-    if (_isLocked || !_isSeekingViaSwipe || widget.live || _screenSize == null)
+    if (_isLocked || !_isSeekingViaSwipe || widget.live || _screenSize == null) {
       return;
+    }
     final screenWidth = _screenSize!.width;
     final swipeDistance = details.globalPosition.dx - _swipeStartX;
     final swipeRatio = swipeDistance / (screenWidth * 0.5);

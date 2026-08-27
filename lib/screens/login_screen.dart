@@ -28,6 +28,11 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   bool _isFormValid = false;
   bool _isLocalMode = false;
+  bool _showAdvancedSettings = false;
+  bool _enableBrowserHeaders = false;
+  final _userAgentController = TextEditingController();
+  final _customHeaderNameController = TextEditingController();
+  final _customHeaderValueController = TextEditingController();
 
   // 点击计数器相关
   int _logoTapCount = 0;
@@ -41,6 +46,23 @@ class _LoginScreenState extends State<LoginScreen> {
     _passwordController.addListener(_validateForm);
     _subscriptionUrlController.addListener(_validateForm);
     _loadSavedUserData();
+    _loadAdvancedSettings();
+  }
+
+  void _loadAdvancedSettings() async {
+    final ua = await UserDataService.getCustomUserAgent();
+    final enabled = await UserDataService.getEnableBrowserHeaders();
+    final header = await UserDataService.getCustomHeader();
+    if (mounted) {
+      setState(() {
+        _userAgentController.text = ua;
+        _enableBrowserHeaders = enabled;
+        if (header.isNotEmpty) {
+          _customHeaderNameController.text = header.keys.first;
+          _customHeaderValueController.text = header.values.first;
+        }
+      });
+    }
   }
 
   void _loadSavedUserData() async {
@@ -83,6 +105,9 @@ class _LoginScreenState extends State<LoginScreen> {
     _usernameController.dispose();
     _passwordController.dispose();
     _subscriptionUrlController.dispose();
+    _userAgentController.dispose();
+    _customHeaderNameController.dispose();
+    _customHeaderValueController.dispose();
     _tapTimer?.cancel();
     super.dispose();
   }
@@ -261,16 +286,23 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   String _parseCookies(http.Response response) {
-    // 解析 Set-Cookie 头部
-    List<String> cookies = [];
+    final allCookies = response.headers['set-cookie'];
+    if (allCookies == null || allCookies.isEmpty) return '';
 
-    // 获取所有 Set-Cookie 头部
-    final setCookieHeaders = response.headers['set-cookie'];
-    if (setCookieHeaders != null) {
-      // HTTP 头部通常是 String 类型
-      final cookieParts = setCookieHeaders.split(';');
-      if (cookieParts.isNotEmpty) {
-        cookies.add(cookieParts[0].trim());
+    final lines = allCookies
+        .split('\n')
+        .expand((line) => line.split(','))
+        .where((s) => s.trim().isNotEmpty)
+        .toList();
+
+    final cookies = <String>[];
+    for (final line in lines) {
+      final semicolonIdx = line.indexOf(';');
+      final nameValue = semicolonIdx > 0
+          ? line.substring(0, semicolonIdx).trim()
+          : line.trim();
+      if (nameValue.contains('=')) {
+        cookies.add(nameValue);
       }
     }
 
@@ -307,16 +339,37 @@ class _LoginScreenState extends State<LoginScreen> {
       });
 
       try {
+        // 保存高级设置
+        await UserDataService.saveCustomUserAgent(_userAgentController.text);
+        await UserDataService.saveEnableBrowserHeaders(_enableBrowserHeaders);
+        await UserDataService.saveCustomHeader(
+            _customHeaderNameController.text,
+            _customHeaderValueController.text);
+
         // 处理 URL
         String baseUrl = _processUrl(_urlController.text);
         String loginUrl = '$baseUrl/api/login';
 
+        final loginHeaders = <String, String>{
+          'Content-Type': 'application/json',
+        };
+        loginHeaders['User-Agent'] = _userAgentController.text;
+        if (_enableBrowserHeaders) {
+          loginHeaders['Accept-Language'] = 'zh-CN,zh;q=0.9,en;q=0.8';
+          loginHeaders['Sec-Fetch-Site'] = 'same-origin';
+          loginHeaders['Sec-Fetch-Mode'] = 'cors';
+          loginHeaders['Sec-Fetch-Dest'] = 'empty';
+        }
+        if (_customHeaderNameController.text.isNotEmpty &&
+            _customHeaderValueController.text.isNotEmpty) {
+          loginHeaders[_customHeaderNameController.text.trim()] =
+              _customHeaderValueController.text.trim();
+        }
+
         // 发送登录请求
         final response = await http.post(
           Uri.parse(loginUrl),
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: loginHeaders,
           body: json.encode({
             'username': _usernameController.text,
             'password': _passwordController.text,
@@ -520,6 +573,168 @@ class _LoginScreenState extends State<LoginScreen> {
         _showToast('登录失败：${e.toString()}', const Color(0xFFe74c3c));
       }
     }
+  }
+
+  Widget _buildAdvancedSettingsToggle() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _showAdvancedSettings = !_showAdvancedSettings;
+          });
+        },
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              _showAdvancedSettings
+                  ? Icons.expand_less
+                  : Icons.expand_more,
+              color: const Color(0xFF7f8c8d),
+              size: 18,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '高级设置',
+              style: FontUtils.poppins(
+                fontSize: 13,
+                color: const Color(0xFF7f8c8d),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAdvancedSettingsPanel() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'User-Agent',
+                  style: FontUtils.poppins(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF2c3e50),
+                  ),
+                ),
+                const Spacer(),
+                SizedBox(
+                  height: 20,
+                  child: Switch.adaptive(
+                    value: _enableBrowserHeaders,
+                    onChanged: (v) {
+                      setState(() {
+                        _enableBrowserHeaders = v;
+                      });
+                    },
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+                Text(
+                  '浏览器头',
+                  style: FontUtils.poppins(
+                    fontSize: 12,
+                    color: const Color(0xFF7f8c8d),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _userAgentController,
+              maxLines: 2,
+              minLines: 1,
+              style: FontUtils.poppins(
+                fontSize: 12,
+                color: const Color(0xFF2c3e50),
+              ),
+              decoration: InputDecoration(
+                hintText: '自定义 User-Agent',
+                hintStyle: FontUtils.poppins(
+                  fontSize: 12,
+                  color: const Color(0xFFbdc3c7),
+                ),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.5),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 10),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _customHeaderNameController,
+                    style: FontUtils.poppins(
+                      fontSize: 12,
+                      color: const Color(0xFF2c3e50),
+                    ),
+                    decoration: InputDecoration(
+                      hintText: '自定义头名称',
+                      hintStyle: FontUtils.poppins(
+                        fontSize: 12,
+                        color: const Color(0xFFbdc3c7),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.5),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextFormField(
+                    controller: _customHeaderValueController,
+                    style: FontUtils.poppins(
+                      fontSize: 12,
+                      color: const Color(0xFF2c3e50),
+                    ),
+                    decoration: InputDecoration(
+                      hintText: '自定义头值',
+                      hintStyle: FontUtils.poppins(
+                        fontSize: 12,
+                        color: const Color(0xFFbdc3c7),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.5),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -795,7 +1010,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ? Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                SizedBox(
+                                const SizedBox(
                                   height: 18,
                                   width: 18,
                                   child: CircularProgressIndicator(
@@ -825,6 +1040,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                     ),
+                    // 高级设置折叠面板
+                    _buildAdvancedSettingsToggle(),
+                    if (_showAdvancedSettings) _buildAdvancedSettingsPanel(),
                   ],
                 ),
         ),
@@ -1092,6 +1310,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ),
                       ),
+                      // 高级设置折叠面板
+                      _buildAdvancedSettingsToggle(),
+                      if (_showAdvancedSettings) _buildAdvancedSettingsPanel(),
                     ],
                   ),
           ),

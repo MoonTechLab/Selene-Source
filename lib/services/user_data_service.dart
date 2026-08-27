@@ -11,6 +11,10 @@ class UserDataService {
   static const String _preferSpeedTestKey = 'prefer_speed_test';
   static const String _localSearchKey = 'local_search';
   static const String _isLocalModeKey = 'is_local_mode';
+  static const String _customUserAgentKey = 'custom_user_agent';
+  static const String _enableBrowserHeadersKey = 'enable_browser_headers';
+  static const String _customHeaderNameKey = 'custom_header_name';
+  static const String _customHeaderValueKey = 'custom_header_value';
   
   // 内存缓存
   static bool? _isLocalModeCache;
@@ -256,5 +260,46 @@ class UserDataService {
   // 同步获取本地模式设置（从内存缓存读取）
   static bool getIsLocalModeSync() {
     return _isLocalModeCache ?? false;
+  }
+
+  static const String _defaultUserAgent =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+      'AppleWebKit/537.36 (KHTML, like Gecko) '
+      'Chrome/124.0.0.0 Safari/537.36';
+
+  static Future<void> saveCustomUserAgent(String ua) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_customUserAgentKey, ua);
+  }
+
+  static Future<String> getCustomUserAgent() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_customUserAgentKey) ?? _defaultUserAgent;
+  }
+
+  static Future<void> saveEnableBrowserHeaders(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_enableBrowserHeadersKey, enabled);
+  }
+
+  static Future<bool> getEnableBrowserHeaders() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_enableBrowserHeadersKey) ?? false;
+  }
+
+  static Future<void> saveCustomHeader(String name, String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_customHeaderNameKey, name);
+    await prefs.setString(_customHeaderValueKey, value);
+  }
+
+  static Future<Map<String, String>> getCustomHeader() async {
+    final prefs = await SharedPreferences.getInstance();
+    final name = prefs.getString(_customHeaderNameKey) ?? '';
+    final value = prefs.getString(_customHeaderValueKey) ?? '';
+    if (name.isNotEmpty && value.isNotEmpty) {
+      return {name: value};
+    }
+    return {};
   }
 }

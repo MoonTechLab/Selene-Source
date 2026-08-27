@@ -170,7 +170,7 @@ class _WindowsButtonHoverState extends State<_WindowsButtonHover> {
           color: backgroundColor ?? Colors.transparent,
           child: Center(
             child: widget.isCloseButton && _isHovered
-                ? Icon(
+                ? const Icon(
                     Icons.close,
                     size: 16,
                     color: Colors.white,

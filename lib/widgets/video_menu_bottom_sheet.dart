@@ -68,7 +68,7 @@ class CollapsibleScrollPhysics extends ScrollPhysics {
   @override
   ScrollPhysics buildParent(ScrollPhysics? ancestor) {
     // 根据平台选择合适的父物理效果
-    final parentPhysics = isIOS ? BouncingScrollPhysics() : ClampingScrollPhysics();
+    final parentPhysics = isIOS ? const BouncingScrollPhysics() : const ClampingScrollPhysics();
     return parent?.applyTo(ancestor ?? parentPhysics) ?? parentPhysics;
   }
 }
@@ -839,7 +839,7 @@ class _VideoMenuBottomSheetState extends State<VideoMenuBottomSheet>
                                       // 关闭按钮
                                       GestureDetector(
                                         onTap: widget.onClose,
-                                        child: Container(
+                                        child: SizedBox(
                                           width: 32,
                                           height: 32,
                                           child: Icon(
@@ -974,10 +974,10 @@ class _VideoMenuBottomSheetState extends State<VideoMenuBottomSheet>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.star,
                         size: 16,
-                        color: const Color(0xFFFFB800),
+                        color: Color(0xFFFFB800),
                       ),
                       const SizedBox(width: 4),
                       Text(
@@ -1138,10 +1138,10 @@ class _VideoMenuBottomSheetState extends State<VideoMenuBottomSheet>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.star,
                         size: 16,
-                        color: const Color(0xFFE91E63),
+                        color: Color(0xFFE91E63),
                       ),
                       const SizedBox(width: 4),
                       Text(

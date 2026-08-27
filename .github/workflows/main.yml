@@ -1,0 +1,156 @@
+name: Selene 全平台构建与发布
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Linux 构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装构建依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev libasound2-dev libmpv-dev
+
+      - name: 配置 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: 获取依赖
+        run: flutter pub get
+
+      - name: 构建并打包
+        run: bash scripts/ci-build.sh linux
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: selene-linux
+          path: build/**/selene-linux.tar.gz
+
+  build-windows:
+    name: Windows 构建
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 配置 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: 获取依赖
+        run: flutter pub get
+
+      - name: 构建
+        run: flutter build windows --release
+
+      - name: 打包
+        run: |
+          $dir = (Get-ChildItem -Path build -Recurse -Filter "runner" -Directory | Select-Object -First 1).FullName
+          Compress-Archive -Path "$dir\Release\*" -DestinationPath selene-windows.zip
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: selene-windows
+          path: selene-windows.zip
+
+  build-apple:
+    name: Apple 构建 (iOS & macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 配置 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: 获取依赖
+        run: flutter pub get
+
+      - name: 构建并打包 iOS
+        run: bash scripts/ci-build.sh ios
+
+      - name: 构建并打包 macOS
+        run: bash scripts/ci-build.sh macos
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: selene-apple
+          path: |
+            selene-ios.ipa
+            selene-macos.dmg
+
+  build-android:
+    name: Android 构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 配置 Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 配置 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 配置 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: 获取依赖
+        run: flutter pub get
+
+      - name: 构建并打包
+        run: bash scripts/ci-build.sh android
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: selene-android
+          path: build/app/outputs/flutter-apk/*.apk
+
+  release:
+    name: 发布到 GitHub Release
+    needs: [build-linux, build-windows, build-apple, build-android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 下载全部构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 读取版本号
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d'+' -f1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: 创建 Release 并上传产物
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Selene v${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            artifacts/selene-android/*.apk
+            artifacts/selene-linux/**/*.tar.gz
+            artifacts/selene-windows/*.zip
+            artifacts/selene-apple/*.ipa
+            artifacts/selene-apple/*.dmg

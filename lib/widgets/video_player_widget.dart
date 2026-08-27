@@ -168,7 +168,13 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
     if (_playerDisposed) {
       return;
     }
-    _player = Player();
+    _player = Player(
+      configuration: PlayerConfiguration(
+        title: 'Selene',
+        bufferSize: 32 * 1024 * 1024,
+        logLevel: MPVLogLevel.error,
+      ),
+    );
     _videoController = VideoController(_player!);
     _setupPlayerListeners();
     if (_currentUrl != null) {

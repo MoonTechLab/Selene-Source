@@ -856,10 +856,10 @@ class _UserMenuState extends State<UserMenu> {
                           ),
                           child: Row(
                             children: [
-                              Icon(
+                              const Icon(
                                 LucideIcons.trash2,
                                 size: 20,
-                                color: const Color(0xFFf59e0b),
+                                color: Color(0xFFf59e0b),
                               ),
                               const SizedBox(width: 12),
                               Text(
@@ -896,10 +896,10 @@ class _UserMenuState extends State<UserMenu> {
                           ),
                           child: Row(
                             children: [
-                              Icon(
+                              const Icon(
                                 LucideIcons.download,
                                 size: 20,
-                                color: const Color(0xFF3b82f6),
+                                color: Color(0xFF3b82f6),
                               ),
                               const SizedBox(width: 12),
                               Text(

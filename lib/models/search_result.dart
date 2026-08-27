@@ -150,10 +150,9 @@ class SearchStartEvent extends SearchEvent {
   SearchStartEvent({
     required this.query,
     required this.totalSources,
-    required int timestamp,
+    required super.timestamp,
   }) : super(
           type: SearchEventType.start,
-          timestamp: timestamp,
         );
 
   factory SearchStartEvent.fromJson(Map<String, dynamic> json) {
@@ -175,10 +174,9 @@ class SearchSourceResultEvent extends SearchEvent {
     required this.source,
     required this.sourceName,
     required this.results,
-    required int timestamp,
+    required super.timestamp,
   }) : super(
           type: SearchEventType.sourceResult,
-          timestamp: timestamp,
         );
 
   factory SearchSourceResultEvent.fromJson(Map<String, dynamic> json) {
@@ -206,10 +204,9 @@ class SearchSourceErrorEvent extends SearchEvent {
     required this.source,
     required this.sourceName,
     required this.error,
-    required int timestamp,
+    required super.timestamp,
   }) : super(
           type: SearchEventType.sourceError,
-          timestamp: timestamp,
         );
 
   factory SearchSourceErrorEvent.fromJson(Map<String, dynamic> json) {
@@ -230,10 +227,9 @@ class SearchCompleteEvent extends SearchEvent {
   SearchCompleteEvent({
     required this.totalResults,
     required this.completedSources,
-    required int timestamp,
+    required super.timestamp,
   }) : super(
           type: SearchEventType.complete,
-          timestamp: timestamp,
         );
 
   factory SearchCompleteEvent.fromJson(Map<String, dynamic> json) {
