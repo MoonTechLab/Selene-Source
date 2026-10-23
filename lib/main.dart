@@ -9,6 +9,7 @@ import 'services/theme_service.dart';
 import 'services/douban_cache_service.dart';
 import 'services/local_mode_storage_service.dart';
 import 'services/subscription_service.dart';
+import 'services/background_audio_service.dart';
 import 'dart:io' show Platform;
 import 'package:macos_window_utils/macos_window_utils.dart';
 import 'package:media_kit/media_kit.dart';
@@ -19,6 +20,7 @@ void main() async {
 
   // 初始化 media_kit (用于 PC 端播放器)
   MediaKit.ensureInitialized();
+  await BackgroundAudioService.initialize();
 
   // 初始化 macOS 窗口配置
   if (Platform.isMacOS) {

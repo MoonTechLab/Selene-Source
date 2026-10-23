@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/user_data_service.dart';
+import '../services/playback_settings.dart';
 import '../screens/login_screen.dart';
 import '../services/douban_cache_service.dart';
 import '../services/page_cache_service.dart';
@@ -654,7 +656,7 @@ class _UserMenuState extends State<UserMenu> {
       child: GestureDetector(
         onTap: widget.onClose,
         child: Container(
-          color: Colors.black.withOpacity(0.3),
+          color: Colors.black.withValues(alpha: 0.3),
           child: Center(
             child: GestureDetector(
               onTap: () {}, // 阻止点击菜单内容时关闭
@@ -668,7 +670,7 @@ class _UserMenuState extends State<UserMenu> {
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
+                      color: Colors.black.withValues(alpha: 0.1),
                       blurRadius: 20,
                       offset: const Offset(0, 8),
                     ),
@@ -815,6 +817,23 @@ class _UserMenuState extends State<UserMenu> {
                       },
                       icon: LucideIcons.zap,
                     ),
+                    if (Platform.isAndroid) ...[
+                      Container(
+                        height: 1,
+                        color: widget.isDarkMode
+                            ? const Color(0xFF374151)
+                            : const Color(0xFFe5e7eb),
+                      ),
+                      ListenableBuilder(
+                        listenable: PlaybackSettings.instance,
+                        builder: (context, _) => _buildToggleOption(
+                          title: '后台播放',
+                          value: PlaybackSettings.instance.backgroundPlaybackEnabled,
+                          onChanged: PlaybackSettings.instance.setBackgroundPlaybackEnabled,
+                          icon: LucideIcons.headphones,
+                        ),
+                      ),
+                    ],
                     // 本地搜索选项（本地模式下不显示）
                     if (!_isLocalMode) ...[
                       // 分割线
