@@ -7,6 +7,7 @@ import 'services/user_data_service.dart';
 import 'services/api_service.dart';
 import 'services/theme_service.dart';
 import 'services/douban_cache_service.dart';
+import 'services/offline_manager.dart';
 import 'services/local_mode_storage_service.dart';
 import 'services/subscription_service.dart';
 import 'dart:io' show Platform;
@@ -19,6 +20,9 @@ void main() async {
 
   // 初始化 media_kit (用于 PC 端播放器)
   MediaKit.ensureInitialized();
+
+  // 初始化离线缓存（app 私有目录，无需存储权限）
+  await OfflineManager().init();
 
   // 初始化 macOS 窗口配置
   if (Platform.isMacOS) {
@@ -143,6 +147,8 @@ class _AppWrapperState extends State<AppWrapper> {
             MaterialPageRoute(builder: (context) => const HomeScreen()),
           );
         }
+        // 本地模式不需要再走服务器自动登录，否则会二次 pushReplacement。
+        return;
       }
 
       // 检查是否有自动登录所需的数据
@@ -159,7 +165,7 @@ class _AppWrapperState extends State<AppWrapper> {
       }
 
       // 服务器模式：尝试自动登录
-      final loginResult = await ApiService.autoLogin();
+      final loginResult = await ApiService.autoLoginEx();
 
       if (mounted) {
         if (loginResult.success) {
@@ -167,8 +173,18 @@ class _AppWrapperState extends State<AppWrapper> {
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (context) => const HomeScreen()),
           );
+        } else if (loginResult.networkUnavailable &&
+            await UserDataService.isLoggedIn()) {
+          // 离线启动：登录请求打不通，但本地还留着上次的 cookie。
+          // 此时仍进入首页，让「我的下载」里的离线视频可看；
+          // 联网后再操作会自然触发 401 并回到登录页，不会造成状态错乱。
+          if (mounted) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (context) => const HomeScreen()),
+            );
+          }
         } else {
-          // 自动登录失败，进入登录页
+          // 凭据被服务器拒绝 / 无任何登录信息：进入登录页
           setState(() {
             _isLoading = false;
           });

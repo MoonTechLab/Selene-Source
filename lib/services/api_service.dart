@@ -557,58 +557,78 @@ class ApiService {
 
   /// 自动登录方法
   static Future<ApiResponse<String>> autoLogin() async {
+    final r = await autoLoginEx();
+    if (r.success) return ApiResponse.success(r.message ?? '自动登录成功');
+    return ApiResponse.error(r.message ?? '自动登录失败');
+  }
+
+  /// 自动登录的增强版本：把「网络不可达」和「凭据无效」区分开。
+  ///
+  /// 这个区分是离线观看的前提：用户在地铁/飞机上打开 app 时，登录请求必然
+  /// 超时，但本地缓存的视频是完全可播的。此时不应把用户挡在登录页，
+  /// 而应带着旧 cookie 进入首页，让离线缓存可用。
+  static Future<
+      ({bool success, bool networkUnavailable, String? message})> autoLoginEx() async {
     try {
-      // 获取用户数据
       final serverUrl = await UserDataService.getServerUrl();
       final username = await UserDataService.getUsername();
       final password = await UserDataService.getPassword();
 
       if (serverUrl == null || username == null || password == null) {
-        return ApiResponse.error('缺少登录信息');
+        return (
+          success: false,
+          networkUnavailable: false,
+          message: '缺少登录信息',
+        );
       }
 
-      // 处理 URL
       String baseUrl = serverUrl.trim();
       if (baseUrl.endsWith('/')) {
         baseUrl = baseUrl.substring(0, baseUrl.length - 1);
       }
-      String loginUrl = '$baseUrl/api/login';
+      final loginUrl = '$baseUrl/api/login';
 
-      // 发送登录请求
-      final response = await http
-          .post(
-            Uri.parse(loginUrl),
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: json.encode({
-              'username': username,
-              'password': password,
-            }),
-          )
-          .timeout(_timeout);
+      final http.Response response;
+      try {
+        response = await http
+            .post(
+              Uri.parse(loginUrl),
+              headers: {'Content-Type': 'application/json'},
+              body: json.encode({
+                'username': username,
+                'password': password,
+              }),
+            )
+            // 离线场景下不要干等 30 秒，快速失败以便进入离线模式。
+            .timeout(const Duration(seconds: 8));
+      } catch (e) {
+        // 连接失败 / DNS 失败 / 超时，都归为「网络不可达」而非「凭据错误」。
+        return (
+          success: false,
+          networkUnavailable: true,
+          message: '网络不可用: $e',
+        );
+      }
 
       if (response.statusCode == 200) {
-        // 解析并保存 cookies
-        String cookies = _parseCookies(response);
-
-        // 更新 cookies
+        final cookies = _parseCookies(response);
         await UserDataService.saveUserData(
           serverUrl: baseUrl,
           username: username,
           password: password,
           cookies: cookies,
         );
-
-        return ApiResponse.success('自动登录成功', statusCode: response.statusCode);
-      } else {
-        return ApiResponse.error(
-          '自动登录失败: ${response.statusCode}',
-          statusCode: response.statusCode,
-        );
+        return (success: true, networkUnavailable: false, message: '自动登录成功');
       }
+
+      // 服务器明确拒绝（401/403 等）：这时才是真的要重新登录。
+      return (
+        success: false,
+        networkUnavailable: false,
+        message: '自动登录失败: ${response.statusCode}',
+      );
     } catch (e) {
-      return ApiResponse.error('自动登录异常: ${e.toString()}');
+      return (success: false, networkUnavailable: true, message: '自动登录异常: $e');
     }
   }
 

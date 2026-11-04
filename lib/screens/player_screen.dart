@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, File;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../widgets/video_player_surface.dart';
@@ -21,6 +21,9 @@ import '../utils/device_utils.dart';
 import '../widgets/player_details_panel.dart';
 import '../widgets/player_episodes_panel.dart';
 import '../widgets/player_sources_panel.dart';
+import '../services/offline_manager.dart';
+import '../services/offline_storage_service.dart';
+import 'downloads_screen.dart';
 import '../widgets/windows_title_bar.dart';
 
 class PlayerScreen extends StatefulWidget {
@@ -31,6 +34,7 @@ class PlayerScreen extends StatefulWidget {
   final String? stitle;
   final String? stype;
   final String? prefer;
+  final int? initialEpisode;
 
   const PlayerScreen({
     super.key,
@@ -41,6 +45,7 @@ class PlayerScreen extends StatefulWidget {
     this.stitle,
     this.stype,
     this.prefer,
+    this.initialEpisode,
   });
 
   @override
@@ -194,6 +199,13 @@ class _PlayerScreenState extends State<PlayerScreen>
     print('prefer: ${widget.prefer}');
   }
 
+  /// 纯离线兜底：用本地缓存记录重建当前视频的 SearchResult。
+  /// 只有当 (source,id) 已知且本地确实有缓存时才返回。
+  SearchResult? _offlineOnlyDetail() {
+    if (currentSource.isEmpty || currentID.isEmpty) return null;
+    return OfflineManager().offlineDetailOf(currentSource, currentID);
+  }
+
   void initVideoData() async {
     final loadGeneration = ++_loadGeneration;
 
@@ -226,19 +238,38 @@ class _PlayerScreenState extends State<PlayerScreen>
     initParam();
 
     // 执行查询
-    allSources = await fetchSourcesData(
-        (searchTitle.isNotEmpty) ? searchTitle : videoTitle);
+    try {
+      allSources = await fetchSourcesData(
+          (searchTitle.isNotEmpty) ? searchTitle : videoTitle);
+    } catch (_) {
+      allSources = [];
+    }
     if (!_isActiveLoad(loadGeneration)) return;
 
     if (currentSource.isNotEmpty &&
         currentID.isNotEmpty &&
         !allSources.any((source) =>
             source.source == currentSource && source.id == currentID)) {
-      allSources = await fetchSourceDetail(currentSource, currentID);
+      try {
+        allSources = await fetchSourceDetail(currentSource, currentID);
+      } catch (_) {
+        allSources = [];
+      }
       if (!_isActiveLoad(loadGeneration)) return;
     }
+
+    // 断网 / 服务器不可达时的兜底：用本地缓存重建详情，进入纯离线播放
     if (allSources.isEmpty) {
-      showError('未找到匹配结果');
+      final offline = _offlineOnlyDetail();
+      if (offline != null) {
+        allSources = [offline];
+      }
+    }
+
+    if (allSources.isEmpty) {
+      showError(currentSource.isEmpty || currentID.isEmpty
+          ? '未找到匹配结果'
+          : '网络不可用，且该视频没有本地缓存');
       return;
     }
 
@@ -269,7 +300,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     _checkFavoriteStatus();
 
     // 获取播放记录
-    int playEpisodeIndex = 0;
+    int playEpisodeIndex = widget.initialEpisode ?? 0;
     int playTime = 0;
     if (mounted) {
       final allPlayRecords = await PageCacheService().getPlayRecords(context);
@@ -279,8 +310,11 @@ class _PlayerScreenState extends State<PlayerScreen>
         final matchingRecords = allPlayRecords.data!.where((record) =>
             record.id == currentID && record.source == currentSource);
         if (matchingRecords.isNotEmpty) {
-          playEpisodeIndex = matchingRecords.first.index - 1;
-          playTime = matchingRecords.first.playTime;
+          // 从「我的下载」进入时指定了集数，优先尊重它，否则回退到播放记录
+          if (widget.initialEpisode == null) {
+            playEpisodeIndex = matchingRecords.first.index - 1;
+            playTime = matchingRecords.first.playTime;
+          }
         }
       }
     }
@@ -655,6 +689,33 @@ class _PlayerScreenState extends State<PlayerScreen>
   Future<void> updateVideoUrl(String newUrl, {Duration? startAt}) async {
     print("newUrl: $newUrl, startAt: $startAt");
     try {
+      // 离线优先：
+      //  · 纯离线模式下列表里给的就是 'local://<绝对路径>'
+      //  · 在线模式下若本集恰好已缓存，也直接读本地文件（省流量、可断网）
+      if (newUrl.startsWith('local://')) {
+        final path = newUrl.substring('local://'.length);
+        if (File(path).existsSync()) {
+          await _videoPlayerController?.updateDataSource('file://$path',
+              startAt: startAt);
+          return;
+        }
+        final rec =
+            OfflineManager().get(currentSource, currentID, currentEpisodeIndex);
+        if (rec == null || rec.originalUrl.isEmpty) {
+          _notifyOfflineMissing();
+          return;
+        }
+        newUrl = rec.originalUrl;
+      }
+
+      final local = await OfflineManager()
+          .localPathOf(currentSource, currentID, currentEpisodeIndex);
+      if (local.isNotEmpty) {
+        await _videoPlayerController?.updateDataSource('file://$local',
+            startAt: startAt);
+        return;
+      }
+
       // 获取 M3U8 代理 URL
       final m3u8ProxyUrl = await UserDataService.getM3u8ProxyUrl();
 
@@ -688,6 +749,14 @@ class _PlayerScreenState extends State<PlayerScreen>
     } catch (e) {
       // 静默处理错误
     }
+  }
+
+  /// 离线播放提示：这一集没有缓存文件。
+  void _notifyOfflineMissing() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('该集没有本地缓存，请联网后重新缓存')),
+    );
   }
 
   /// 跳转到指定进度
@@ -1549,12 +1618,297 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   /// 构建选集区域
+  /// 缓存当前集到本地（离线观看）
+  /// 缓存指定的一集（选集卡片上的下载按钮用）。
+  Future<void> _cacheEpisodeAt(int episodeIndex) async {
+    final detail = currentDetail;
+    if (detail == null) return;
+    if (episodeIndex < 0 || episodeIndex >= detail.episodes.length) return;
+
+    final url = detail.episodes[episodeIndex];
+    if (url.isEmpty || url.startsWith('local://')) {
+      _toast('该集已在本地，无需重复缓存');
+      return;
+    }
+    if (OfflineManager().isCached(currentSource, currentID, episodeIndex)) {
+      _toast('该集已缓存，可直接离线观看');
+      return;
+    }
+
+    final epTitle = (detail.episodesTitles.isNotEmpty &&
+            episodeIndex < detail.episodesTitles.length)
+        ? detail.episodesTitles[episodeIndex]
+        : '第 ${episodeIndex + 1} 集';
+
+    await OfflineManager().cacheEpisode(
+      source: currentSource,
+      id: currentID,
+      episodeIndex: episodeIndex,
+      title: videoTitle,
+      episodeTitle: epTitle,
+      coverUrl: detail.poster,
+      originalUrl: url,
+      totalEpisodes: detail.episodes.length,
+    );
+    _toast('已加入缓存队列：$epTitle');
+  }
+
+  /// 该剧已缓存的集数，用于选集面板标题摘要。
+  int _cachedEpisodeCount() {
+    final detail = currentDetail;
+    if (detail == null) return 0;
+    final mgr = OfflineManager();
+    var n = 0;
+    for (var i = 0; i < detail.episodes.length; i++) {
+      if (mgr.isCached(currentSource, currentID, i)) n++;
+    }
+    return n;
+  }
+
+  void _toast(String msg) {    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
+    );
+  }
+
+  /// 一键缓存全部未缓存的集。
+  ///
+  /// 实际下载是逐集排队跑的（kMaxConcurrentEpisodes），不会同时占用几十个连接；
+  /// 这里只负责把整季入队。
+  Future<void> _cacheAllEpisodes() async {
+    final detail = currentDetail;
+    if (detail == null || detail.episodes.isEmpty) return;
+
+    final mgr = OfflineManager();
+    final pending = detail.episodes
+        .where((e) => e.isNotEmpty && !e.startsWith('local://'))
+        .length;
+    if (pending == 0) {
+      _toast('该剧没有可缓存的在线地址');
+      return;
+    }
+
+    // 已全部缓存时不再弹确认框，直接提示。
+    final remaining = <int>[];
+    for (var i = 0; i < detail.episodes.length; i++) {
+      final url = detail.episodes[i];
+      if (url.isEmpty || url.startsWith('local://')) continue;
+      if (mgr.isCached(currentSource, currentID, i)) continue;
+      remaining.add(i);
+    }
+    if (remaining.isEmpty) {
+      _toast('全部 ${detail.episodes.length} 集都已缓存');
+      return;
+    }
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('缓存全集'),
+        content: Text(
+          '共 ${detail.episodes.length} 集，其中 ${remaining.length} 集需要下载。\n\n'
+          '会逐集排队下载，过程中可以随时在「我的下载」暂停。\n'
+          '整季可能占用数 GB 空间，建议在 Wi-Fi 下进行。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(true),
+            child: const Text('开始缓存'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    final n = await mgr.cacheEpisodes(
+      source: currentSource,
+      id: currentID,
+      title: videoTitle,
+      coverUrl: detail.poster,
+      episodes: detail.episodes,
+      episodesTitles: detail.episodesTitles,
+      indexes: remaining,
+      totalEpisodes: detail.episodes.length,
+    );
+    _toast('已加入队列 $n 集，可在「我的下载」查看进度');
+  }
+
+  /// 缓存当前播放的这一集（选集标题行的按钮用）。
+  Future<void> _cacheCurrentEpisode() async {
+    final detail = currentDetail;
+    if (detail == null) return;
+    if (currentEpisodeIndex < 0 ||
+        currentEpisodeIndex >= detail.episodes.length) {
+      return;
+    }
+    final url = detail.episodes[currentEpisodeIndex];
+    // 已经是本地缓存（纯离线模式）或地址为空：无需再缓存
+    if (url.isEmpty || url.startsWith('local://')) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('该集已在本地，无需重复缓存')),
+        );
+      }
+      return;
+    }
+
+    final epTitle =
+        (detail.episodesTitles.isNotEmpty &&
+                currentEpisodeIndex < detail.episodesTitles.length)
+            ? detail.episodesTitles[currentEpisodeIndex]
+            : '第 ${currentEpisodeIndex + 1} 集';
+
+    if (OfflineManager()
+        .isCached(currentSource, currentID, currentEpisodeIndex)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('该集已缓存，可直接离线观看')),
+        );
+      }
+      return;
+    }
+
+    await OfflineManager().cacheEpisode(
+      source: currentSource,
+      id: currentID,
+      episodeIndex: currentEpisodeIndex,
+      title: videoTitle,
+      episodeTitle: epTitle,
+      coverUrl: detail.poster,
+      originalUrl: url,
+      totalEpisodes: detail.episodes.length,
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已开始缓存：$epTitle（在「我的下载」查看进度）'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  /// 「缓存本集」按钮：随下载状态变化（未缓存 / 下载中 / 已暂停 / 已缓存）。
+  Widget _buildCacheButton(bool isDarkMode, ThemeData theme) {
+    final source = currentSource;
+    final id = currentID;
+    final idx = currentEpisodeIndex;
+
+    return AnimatedBuilder(
+      animation: OfflineManager(),
+      builder: (context, _) {
+        final mgr = OfflineManager();
+        final rec = mgr.get(source, id, idx);
+        final cached = mgr.isCached(source, id, idx);
+        final running = mgr.isRunning(source, id, idx) ||
+            (rec != null && rec.status == DownloadStatus.downloading);
+        final pct = rec == null ? 0 : (rec.progress * 100).floor();
+
+        IconData icon;
+        String label;
+        if (cached) {
+          icon = Icons.download_done;
+          label = '已缓存';
+        } else if (running) {
+          icon = Icons.downloading;
+          label = '缓存中$pct%';
+        } else if (rec != null && rec.status == DownloadStatus.paused) {
+          icon = Icons.pause_circle_outline;
+          label = '已暂停';
+        } else if (rec != null && rec.status == DownloadStatus.error) {
+          icon = Icons.error_outline;
+          label = '重试缓存';
+        } else {
+          icon = Icons.download_for_offline_outlined;
+          label = '缓存本集';
+        }
+
+        final color = cached
+            ? const Color(0xFF22c55e)
+            : (isDarkMode ? Colors.grey[400] : Colors.grey[600]);
+
+        return _HoverButton(
+          onTap: () => _onCacheButtonTap(rec, running, cached),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// 缓存按钮点击：按当前状态分发到 开始 / 暂停 / 继续 / 打开下载页。
+  Future<void> _onCacheButtonTap(
+      OfflineRecord? rec, bool running, bool cached) async {
+    if (cached) {
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const DownloadsScreen()),
+      );
+      return;
+    }
+    if (running) {
+      await OfflineManager()
+          .pause(currentSource, currentID, currentEpisodeIndex);
+      return;
+    }
+    if (rec != null && rec.status == DownloadStatus.paused) {
+      await OfflineManager().resume(rec);
+      return;
+    }
+    await _cacheCurrentEpisode();
+  }
+
   Widget _buildEpisodesSection(ThemeData theme) {
     final isDarkMode = theme.brightness == Brightness.dark;
 
-    // 如果总集数只有一集，则不展示选集区域
+    // 单集（电影）：不展示选集区域，但依然提供缓存入口
     if (totalEpisodes <= 1) {
-      return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(left: 16, right: 16, bottom: 4),
+        child: Row(
+          children: [
+            _buildCacheButton(isDarkMode, theme),
+            const Spacer(),
+            GestureDetector(
+              onTap: _showDetailsPanel,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '详情',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                      fontWeight: FontWeight.w300,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.arrow_forward_ios,
+                    size: 12,
+                    color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
     }
 
     return Column(
@@ -1639,6 +1993,36 @@ class _PlayerScreenState extends State<PlayerScreen>
 
               const SizedBox(width: 20),
 
+              // 缓存本集按钮（离线下载当前集）
+              _buildCacheButton(isDarkMode, theme),
+
+              const SizedBox(width: 12),
+
+              // 一键缓存整季
+              _HoverButton(
+                onTap: _cacheAllEpisodes,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.playlist_add,
+                      size: 15,
+                      color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '缓存全集',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                        fontWeight: FontWeight.w300,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 12),
+
               // 展开按钮
               _HoverButton(
                 onTap: _showEpisodesPanel,
@@ -1672,7 +2056,11 @@ class _PlayerScreenState extends State<PlayerScreen>
         const SizedBox(height: 2),
 
         // 集数卡片横向滚动区域
-        LayoutBuilder(
+        // 包一层 AnimatedBuilder：缓存进度变化时角标要跟着变，
+        // 否则用户点了下载后卡片一直显示「未缓存」。
+        AnimatedBuilder(
+          animation: OfflineManager(),
+          builder: (context, _) => LayoutBuilder(
           builder: (context, constraints) {
             // 计算按钮宽度：根据设备类型调整
             final screenWidth = constraints.maxWidth;
@@ -1731,6 +2119,13 @@ class _PlayerScreenState extends State<PlayerScreen>
 
                                   startPlay(episodeIndex, 0);
                                 },
+                          // 每集独立的缓存入口：不必先点进这一集再点「缓存本集」。
+                          cacheState: OfflineManager().stateOf(
+                            currentSource,
+                            currentID,
+                            episodeIndex,
+                          ),
+                          onCacheTap: () => _cacheEpisodeAt(episodeIndex),
                         ),
                       ),
                     );
@@ -1739,6 +2134,7 @@ class _PlayerScreenState extends State<PlayerScreen>
               ),
             );
           },
+          ),
         ),
       ],
     );
@@ -1796,6 +2192,14 @@ class _PlayerScreenState extends State<PlayerScreen>
                         currentEpisodeIndex: currentEpisodeIndex,
                         isReversed: _isEpisodesReversed,
                         crossAxisCount: crossAxisCount,
+                        cacheStateOf: (i) => OfflineManager()
+                            .stateOf(currentSource, currentID, i),
+                        cachedCount: _cachedEpisodeCount(),
+                        onCacheTap: (i) => _cacheEpisodeAt(i),
+                        onCacheAll: () {
+                          Navigator.pop(context);
+                          _cacheAllEpisodes();
+                        },
                         onEpisodeTap: (index) {
                           Navigator.pop(context);
                           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1847,6 +2251,14 @@ class _PlayerScreenState extends State<PlayerScreen>
                 currentEpisodeIndex: currentEpisodeIndex,
                 isReversed: _isEpisodesReversed,
                 crossAxisCount: crossAxisCount,
+                cacheStateOf: (i) =>
+                    OfflineManager().stateOf(currentSource, currentID, i),
+                cachedCount: _cachedEpisodeCount(),
+                onCacheTap: (i) => _cacheEpisodeAt(i),
+                onCacheAll: () {
+                  Navigator.pop(context);
+                  _cacheAllEpisodes();
+                },
                 onEpisodeTap: (index) {
                   Navigator.pop(context);
                   WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -3063,12 +3475,20 @@ class _EpisodeCardWithHover extends StatefulWidget {
   final String episodeTitle;
   final VoidCallback? onTap;
 
+  /// 该集的缓存状态，用于右下角画角标。
+  final EpisodeCacheState cacheState;
+
+  /// 点击右下角缓存图标。
+  final VoidCallback? onCacheTap;
+
   const _EpisodeCardWithHover({
     required this.isCurrentEpisode,
     required this.isDarkMode,
     required this.episodeIndex,
     required this.episodeTitle,
     this.onTap,
+    this.cacheState = EpisodeCacheState.none,
+    this.onCacheTap,
   });
 
   @override
@@ -3078,8 +3498,27 @@ class _EpisodeCardWithHover extends StatefulWidget {
 class _EpisodeCardWithHoverState extends State<_EpisodeCardWithHover> {
   bool _isHovering = false;
 
+  /// 右下角角标的图标与颜色；未缓存时返回 null 表示不画角标（只画可点的按钮）。
+  ({IconData icon, Color color})? get _cacheBadge {
+    switch (widget.cacheState) {
+      case EpisodeCacheState.cached:
+        return (icon: Icons.download_done, color: const Color(0xFF22c55e));
+      case EpisodeCacheState.downloading:
+        return (icon: Icons.downloading, color: const Color(0xFF3b82f6));
+      case EpisodeCacheState.pending:
+        return (icon: Icons.hourglass_empty, color: const Color(0xFFf59e0b));
+      case EpisodeCacheState.paused:
+        return (icon: Icons.pause_circle_outline, color: const Color(0xFF9ca3af));
+      case EpisodeCacheState.error:
+        return (icon: Icons.error_outline, color: const Color(0xFFef4444));
+      case EpisodeCacheState.none:
+        return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final badge = _cacheBadge;
     return MouseRegion(
       cursor: (DeviceUtils.isPC() && !widget.isCurrentEpisode)
           ? SystemMouseCursors.click
@@ -3148,7 +3587,79 @@ class _EpisodeCardWithHoverState extends State<_EpisodeCardWithHover> {
                   ),
                 ),
               ),
+              // 右下角缓存按钮/状态角标
+              if (widget.onCacheTap != null)
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: _EpisodeCacheButton(
+                    icon: badge?.icon,
+                    color: badge?.color,
+                    isDarkMode: widget.isDarkMode,
+                    tooltip: _cacheTooltip,
+                    onTap: widget.cacheState == EpisodeCacheState.downloading
+                        ? null // 下载中不重复触发，避免重复入队
+                        : widget.onCacheTap,
+                  ),
+                ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String get _cacheTooltip {
+    switch (widget.cacheState) {
+      case EpisodeCacheState.cached:
+        return '已缓存';
+      case EpisodeCacheState.downloading:
+        return '下载中';
+      case EpisodeCacheState.pending:
+        return '排队中';
+      case EpisodeCacheState.paused:
+        return '已暂停，点击继续';
+      case EpisodeCacheState.error:
+        return '失败，点击重试';
+      case EpisodeCacheState.none:
+        return '缓存本集';
+    }
+  }
+}
+
+/// 选集卡片右下角的小缓存按钮：有状态时显示状态色，无状态时显示下载图标。
+class _EpisodeCacheButton extends StatelessWidget {
+  final IconData? icon;
+  final Color? color;
+  final bool isDarkMode;
+  final String tooltip;
+  final VoidCallback? onTap;
+
+  const _EpisodeCacheButton({
+    required this.icon,
+    required this.color,
+    required this.isDarkMode,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveColor =
+        color ?? (isDarkMode ? Colors.grey[300] : Colors.grey[700]);
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          // 用透明 Padding 扩大点击热区：卡片本身很小，
+          // 图标若贴着边缘会很难点中。
+          padding: const EdgeInsets.all(5),
+          child: Icon(
+            icon ?? Icons.download_for_offline_outlined,
+            size: 15,
+            color: effectiveColor,
           ),
         ),
       ),

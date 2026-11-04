@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/user_data_service.dart';
 import '../screens/login_screen.dart';
+import '../screens/downloads_screen.dart';
 import '../services/douban_cache_service.dart';
 import '../services/page_cache_service.dart';
 import '../services/live_service.dart';
@@ -145,6 +146,15 @@ class _UserMenuState extends State<UserMenu> {
         (route) => false,
       );
     }
+  }
+
+  /// 打开「我的下载」离线缓存管理页
+  void _handleOpenDownloads() {
+    // 先关闭用户菜单，再压入下载页，返回时停留在原页面
+    widget.onClose?.call();
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => const DownloadsScreen()),
+    );
   }
 
   Future<void> _handleClearDoubanCache() async {
@@ -837,6 +847,46 @@ class _UserMenuState extends State<UserMenu> {
                         icon: LucideIcons.search,
                       ),
                     ],
+                    // 分割线
+                    Container(
+                      height: 1,
+                      color: widget.isDarkMode
+                          ? const Color(0xFF374151)
+                          : const Color(0xFFe5e7eb),
+                    ),
+                    // 我的下载（离线缓存）入口
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: _handleOpenDownloads,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                LucideIcons.hardDriveDownload,
+                                size: 20,
+                                color: Color(0xFF3b82f6),
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                '我的下载',
+                                style: FontUtils.poppins(
+                                  fontSize: 16,
+                                  color: widget.isDarkMode
+                                      ? const Color(0xFFffffff)
+                                      : const Color(0xFF1f2937),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                     // 分割线
                     Container(
                       height: 1,
